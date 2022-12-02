@@ -1,0 +1,13 @@
+nameReference:
+  - kind: Issuer
+    fieldSpecs:
+      - path: spec/issuerRef/name
+        kind: Certificate
+  - kind: Secret
+    fieldSpecs:
+      - path: spec/secretName
+        kind: Certificate
+
+varReference:
+  - path: spec/dnsNames
+    kind: Certificate

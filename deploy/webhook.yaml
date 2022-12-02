@@ -1,0 +1,31 @@
+
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: webhook.pod-ca-trust.dev
+  annotations:
+    cert-manager.io/inject-ca-from: $(NAMESPACE)/$(CERT_NAME)
+webhooks:
+  - name: webhook.pod-ca-trust.dev
+    sideEffects: None
+    admissionReviewVersions: ["v1"]
+    namespaceSelector:
+      matchExpressions:
+        - key: name
+          operator: NotIn
+          values: ["kube-system"]
+    objectSelector:
+      matchExpressions:
+        - key: app
+          operator: NotIn
+          values: ["pod-ca-trust"]
+    rules:
+      - operations: ["CREATE","UPDATE"]
+        apiGroups: [""]
+        apiVersions: ["v1"]
+        resources: ["pods"]
+    clientConfig:
+      service:
+        name: webhook
+        namespace: default
+      caBundle: ""

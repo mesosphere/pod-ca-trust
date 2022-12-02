@@ -1,0 +1,38 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namePrefix: pod-ca-trust-
+
+resources:
+  - deployment.yaml
+  - tls.yaml
+  - webhook.yaml
+
+configMapGenerator:
+  - name: config
+    envs:
+      - config.env
+
+configurations:
+  - kustomization_config.yaml
+
+vars:
+  - name: NAMESPACE
+    objref:
+      group: apps
+      apiVersion: v1
+      kind: Deployment
+      name: webhook
+    fieldref:
+      fieldpath: metadata.namespace
+  - name: CERT_NAME
+    objref:
+      group: cert-manager.io
+      apiVersion: v1
+      kind: Certificate
+      name: webhook
+  - name: WEBHOOK_NAME
+    objref:
+      apiVersion: v1
+      kind: Service
+      name: webhook

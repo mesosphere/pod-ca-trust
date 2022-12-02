@@ -1,0 +1,54 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: webhook
+  namespace: default
+  labels:
+    app: pod-ca-trust
+spec:
+  ports:
+    - port: 443
+      targetPort: 8443
+  selector:
+    app: pod-ca-trust
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webhook
+  namespace: default
+  labels:
+    app: pod-ca-trust
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pod-ca-trust
+  template:
+    metadata:
+      labels:
+        app: pod-ca-trust
+    spec:
+      containers:
+        - image: webhook-image
+          imagePullPolicy: IfNotPresent
+          name: webhook
+          env:
+            - name: LISTEN
+              value: ":8443"
+            - name: SERVE_TLS_CERT
+              value: "/etc/webhook/tls/tls.crt"
+            - name: SERVE_TLS_KEY
+              value: "/etc/webhook/tls/tls.key"
+          envFrom:
+            - configMapRef:
+                name: config
+          volumeMounts:
+            - name: tls
+              mountPath: "/etc/webhook/tls"
+              readOnly: true
+      volumes:
+        - name: tls
+          secret:
+            secretName: webhook-tls
