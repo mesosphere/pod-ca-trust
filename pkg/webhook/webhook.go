@@ -104,11 +104,13 @@ func (aw CAInjectionWebhook) MutatePods(request *admission.AdmissionRequest) *ad
 }
 
 func (aw CAInjectionWebhook) applyVolume(pod *core.Pod) {
+	optional := true
 	caVolume := core.Volume{
 		Name: volumeName,
 		VolumeSource: core.VolumeSource{
 			Secret: &core.SecretVolumeSource{
 				SecretName: aw.CASecretName,
+				Optional:   &optional,
 			},
 		},
 	}
