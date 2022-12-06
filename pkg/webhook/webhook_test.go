@@ -65,12 +65,10 @@ func TestMutatePods(t *testing.T) {
 		caCert:    []byte("test ca"),
 	}
 	request := &admission.AdmissionRequest{
-		Name: "my-pod",
-		Kind: meta.GroupVersionKind{
-			Version: "v1",
-			Kind:    "Pod",
-		},
-		Object: runtime.RawExtension{Raw: podJSON},
+		Name:      testPod.Name,
+		Namespace: testPod.Namespace,
+		Kind:      meta.GroupVersionKind(testPod.GroupVersionKind()),
+		Object:    runtime.RawExtension{Raw: podJSON},
 	}
 	response := webhook.MutatePods(request)
 
@@ -185,6 +183,53 @@ func TestMutatePods(t *testing.T) {
 			"ca.crt": webhook.caCert,
 		}, appliedSecret.Data)
 	})
+}
+
+func TestMutatePods_RestrictiveServiceAccount(t *testing.T) {
+	testPod := testPod.DeepCopy()
+	testPod.Spec.ServiceAccountName = "test-sa"
+	podJSON, err := json.Marshal(testPod)
+	require.NoError(t, err)
+
+	serviceAccount := &core.ServiceAccount{
+		ObjectMeta: meta.ObjectMeta{
+			Name:      "test-sa",
+			Namespace: testPod.Namespace,
+		},
+		Secrets: []core.ObjectReference{{Name: "some-secret"}},
+	}
+	fakeClient := fake.NewSimpleClientset(serviceAccount)
+	// fake client doesn't support "apply" patches, so adding separate logic
+	var appliedSecret core.Secret
+	fakeClient.PrependReactor("patch", "secrets",
+		func(action clienttesting.Action) (handled bool, ret runtime.Object, err error) {
+			err = json.Unmarshal(action.(clienttesting.PatchAction).GetPatch(), &appliedSecret)
+			require.NoError(t, err)
+			return true, nil, nil
+		},
+	)
+
+	webhook := CAInjectionWebhook{
+		CAInjectionWebhookConfig: CAInjectionWebhookConfig{
+			CASecretName:      "ca-secret",
+			CASecretNamespace: "test",
+			CASecretKey:       "ca.crt",
+			CABundlePath:      "/etc/ssl/certs/injected-ca.pem",
+		},
+		clientset: fakeClient,
+		caCert:    []byte("test ca"),
+	}
+	request := &admission.AdmissionRequest{
+		Name:      testPod.Name,
+		Namespace: testPod.Namespace,
+		Kind:      meta.GroupVersionKind(testPod.GroupVersionKind()),
+		Object:    runtime.RawExtension{Raw: podJSON},
+	}
+	response := webhook.MutatePods(request)
+
+	assert.True(t, response.Allowed)
+	assert.Nil(t, response.Result)
+	assert.Empty(t, response.Patch)
 }
 
 var testPod = core.Pod{

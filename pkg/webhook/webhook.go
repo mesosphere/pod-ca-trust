@@ -3,6 +3,7 @@ package webhook
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 
@@ -111,6 +112,19 @@ func (aw *CAInjectionWebhook) MutatePods(request *admission.AdmissionRequest) *a
 	podNameForLogs := pod.Name
 	if podNameForLogs == "" {
 		podNameForLogs = pod.GenerateName + "???"
+	}
+
+	if pod.Spec.ServiceAccountName != "" {
+		sa, err := aw.clientset.CoreV1().ServiceAccounts(pod.Namespace).Get(context.Background(), pod.Spec.ServiceAccountName, meta.GetOptions{})
+		if err != nil {
+			return errorInternal(err)
+		}
+		if len(sa.Secrets) > 0 {
+			return &admission.AdmissionResponse{
+				Allowed:  true,
+				Warnings: []string{fmt.Sprintf("pod %q uses a service account with restricted secrets, skipping", podNameForLogs)},
+			}
+		}
 	}
 
 	if request.DryRun == nil || !*request.DryRun {
