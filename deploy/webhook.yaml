@@ -7,7 +7,7 @@ metadata:
     cert-manager.io/inject-ca-from: $(NAMESPACE)/$(CERT_NAME)
 webhooks:
   - name: webhook.pod-ca-trust.dev
-    sideEffects: None
+    sideEffects: NoneOnDryRun
     admissionReviewVersions: ["v1"]
     namespaceSelector:
       matchExpressions:

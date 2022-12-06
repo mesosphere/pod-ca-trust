@@ -1,6 +1,7 @@
 package webhook
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -9,6 +10,9 @@ import (
 	admission "k8s.io/api/admission/v1"
 	core "k8s.io/api/core/v1"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
+	v1 "k8s.io/client-go/applyconfigurations/core/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
 const (
@@ -16,16 +20,47 @@ const (
 	volumeMountName = volumeName
 )
 
-type CAInjectionWebhook struct {
-	CASecretName string
-	CASecretKey  string
-	CABundlePath string
+type CAInjectionWebhookConfig struct {
+	CASecretName      string
+	CASecretNamespace string
+	CASecretKey       string
+	CABundlePath      string
 }
 
-var _ http.Handler = CAInjectionWebhook{}
+type CAInjectionWebhook struct {
+	CAInjectionWebhookConfig
+	clientset kubernetes.Interface
+	caCert    []byte
+}
+
+var _ http.Handler = &CAInjectionWebhook{}
+
+func New(config CAInjectionWebhookConfig) (*CAInjectionWebhook, error) {
+	restConfig, err := rest.InClusterConfig()
+	if err != nil {
+		return nil, err
+	}
+	clientset, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	caSecret, err := clientset.CoreV1().Secrets(config.CASecretNamespace).Get(context.Background(), config.CASecretName, meta.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	log.Printf("CA: %s", caSecret.Data[config.CASecretKey])
+
+	return &CAInjectionWebhook{
+		CAInjectionWebhookConfig: config,
+		clientset:                clientset,
+		caCert:                   caSecret.Data[config.CASecretKey],
+	}, nil
+}
 
 // ServeHTTP implements http.Handler
-func (aw CAInjectionWebhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (aw *CAInjectionWebhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var request admission.AdmissionReview
 	requestDecoder := json.NewDecoder(r.Body)
 	err := requestDecoder.Decode(&request)
@@ -49,7 +84,7 @@ func (aw CAInjectionWebhook) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_ = responseEncoder.Encode(response)
 }
 
-func (aw CAInjectionWebhook) MutatePods(request *admission.AdmissionRequest) *admission.AdmissionResponse {
+func (aw *CAInjectionWebhook) MutatePods(request *admission.AdmissionRequest) *admission.AdmissionResponse {
 	// ignore requests with wrong type
 	if request.Kind != meta.GroupVersionKind(core.SchemeGroupVersion.WithKind("Pod")) {
 		return &admission.AdmissionResponse{
@@ -73,9 +108,17 @@ func (aw CAInjectionWebhook) MutatePods(request *admission.AdmissionRequest) *ad
 		}
 	}
 
-	podName := pod.Name
-	if podName == "" {
-		podName = pod.GenerateName + "???"
+	podNameForLogs := pod.Name
+	if podNameForLogs == "" {
+		podNameForLogs = pod.GenerateName + "???"
+	}
+
+	if request.DryRun == nil || !*request.DryRun {
+		log.Println("applying secret in namespace", pod.Namespace)
+		err := aw.applyCACertSecret(pod.Namespace)
+		if err != nil {
+			return errorInternal(err)
+		}
 	}
 
 	mutatedPod := pod.DeepCopy()
@@ -87,7 +130,7 @@ func (aw CAInjectionWebhook) MutatePods(request *admission.AdmissionRequest) *ad
 		return errorInternal(err)
 	}
 	if patch == nil {
-		log.Printf(`Pod "%s/%s" unchanged.`, pod.Namespace, podName)
+		log.Printf(`Pod "%s/%s" unchanged.`, pod.Namespace, podNameForLogs)
 		return &admission.AdmissionResponse{Allowed: true}
 	}
 	patchJSON, err := json.Marshal(patch)
@@ -95,7 +138,7 @@ func (aw CAInjectionWebhook) MutatePods(request *admission.AdmissionRequest) *ad
 		return errorInternal(err)
 	}
 	patchType := admission.PatchTypeJSONPatch
-	log.Printf(`Pod "%s/%s" patched.`, pod.Namespace, podName)
+	log.Printf(`Pod "%s/%s" patched.`, pod.Namespace, podNameForLogs)
 	return &admission.AdmissionResponse{
 		Allowed:   true,
 		PatchType: &patchType,
@@ -103,14 +146,23 @@ func (aw CAInjectionWebhook) MutatePods(request *admission.AdmissionRequest) *ad
 	}
 }
 
-func (aw CAInjectionWebhook) applyVolume(pod *core.Pod) {
-	optional := true
+func (aw *CAInjectionWebhook) applyCACertSecret(namespace string) error {
+	_, err := aw.clientset.CoreV1().Secrets(namespace).Apply(context.Background(),
+		v1.Secret(aw.CASecretName, namespace).
+			WithData(map[string][]byte{
+				aw.CASecretKey: aw.caCert,
+			}),
+		meta.ApplyOptions{FieldManager: "pod-ca-trust-webhook"},
+	)
+	return err
+}
+
+func (aw *CAInjectionWebhook) applyVolume(pod *core.Pod) {
 	caVolume := core.Volume{
 		Name: volumeName,
 		VolumeSource: core.VolumeSource{
 			Secret: &core.SecretVolumeSource{
 				SecretName: aw.CASecretName,
-				Optional:   &optional,
 			},
 		},
 	}
@@ -124,7 +176,7 @@ func (aw CAInjectionWebhook) applyVolume(pod *core.Pod) {
 	pod.Spec.Volumes = append(pod.Spec.Volumes, caVolume)
 }
 
-func (aw CAInjectionWebhook) applyVolumeMounts(pod *core.Pod) {
+func (aw *CAInjectionWebhook) applyVolumeMounts(pod *core.Pod) {
 	for i := range pod.Spec.Containers {
 		aw.applyVolumeMount(&pod.Spec.Containers[i])
 	}
@@ -133,7 +185,7 @@ func (aw CAInjectionWebhook) applyVolumeMounts(pod *core.Pod) {
 	}
 }
 
-func (aw CAInjectionWebhook) applyVolumeMount(container *core.Container) {
+func (aw *CAInjectionWebhook) applyVolumeMount(container *core.Container) {
 	caVolumeMount := core.VolumeMount{
 		Name:      volumeMountName,
 		ReadOnly:  true,

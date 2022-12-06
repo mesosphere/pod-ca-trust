@@ -4,6 +4,7 @@ kind: Kustomization
 namePrefix: pod-ca-trust-
 
 resources:
+  - rbac.yaml
   - deployment.yaml
   - tls.yaml
   - webhook.yaml

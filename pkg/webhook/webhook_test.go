@@ -1,24 +1,29 @@
-package webhook_test
+package webhook
 
 import (
 	"encoding/json"
 	"testing"
 
 	jsonpatch "github.com/evanphx/json-patch/v5"
-	"github.com/floridoo/pod-ca-trust/pkg/webhook"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	admission "k8s.io/api/admission/v1"
 	core "k8s.io/api/core/v1"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes/fake"
+	clienttesting "k8s.io/client-go/testing"
 )
 
 func TestMutatePods_NotAPod(t *testing.T) {
-	webhook := webhook.CAInjectionWebhook{
-		CASecretName: "ca-secret",
-		CASecretKey:  "ca.crt",
-		CABundlePath: "/etc/ssl/certs/injected-ca.pem",
+	webhook := CAInjectionWebhook{
+		CAInjectionWebhookConfig: CAInjectionWebhookConfig{
+			CASecretName:      "ca-secret",
+			CASecretNamespace: "test",
+			CASecretKey:       "ca.crt",
+			CABundlePath:      "/etc/ssl/certs/injected-ca.pem",
+		},
+		clientset: fake.NewSimpleClientset(),
 	}
 
 	request := &admission.AdmissionRequest{
@@ -38,10 +43,26 @@ func TestMutatePods(t *testing.T) {
 	podJSON, err := json.Marshal(testPod)
 	require.NoError(t, err)
 
-	webhook := webhook.CAInjectionWebhook{
-		CASecretName: "ca-secret",
-		CASecretKey:  "ca.crt",
-		CABundlePath: "/etc/ssl/certs/injected-ca.pem",
+	fakeClient := fake.NewSimpleClientset()
+	// fake client doesn't support "apply" patches, so adding separate logic
+	var appliedSecret core.Secret
+	fakeClient.PrependReactor("patch", "secrets",
+		func(action clienttesting.Action) (handled bool, ret runtime.Object, err error) {
+			err = json.Unmarshal(action.(clienttesting.PatchAction).GetPatch(), &appliedSecret)
+			require.NoError(t, err)
+			return true, nil, nil
+		},
+	)
+
+	webhook := CAInjectionWebhook{
+		CAInjectionWebhookConfig: CAInjectionWebhookConfig{
+			CASecretName:      "ca-secret",
+			CASecretNamespace: "test",
+			CASecretKey:       "ca.crt",
+			CABundlePath:      "/etc/ssl/certs/injected-ca.pem",
+		},
+		clientset: fakeClient,
+		caCert:    []byte("test ca"),
 	}
 	request := &admission.AdmissionRequest{
 		Name: "my-pod",
@@ -55,6 +76,7 @@ func TestMutatePods(t *testing.T) {
 
 	t.Run("new pod", func(t *testing.T) {
 		assert.True(t, response.Allowed)
+		assert.Nil(t, response.Result)
 		patchType := admission.PatchTypeJSONPatch
 		assert.Equal(t, &patchType, response.PatchType)
 		assert.JSONEq(t,
@@ -98,6 +120,11 @@ func TestMutatePods(t *testing.T) {
 			]`,
 			string(response.Patch),
 		)
+		assert.Equal(t, "ca-secret", appliedSecret.Name)
+		assert.Equal(t, "default", appliedSecret.Namespace)
+		assert.Equal(t, map[string][]byte{
+			"ca.crt": webhook.caCert,
+		}, appliedSecret.Data)
 	})
 
 	patch, err := jsonpatch.DecodePatch(response.Patch)
@@ -129,7 +156,13 @@ func TestMutatePods(t *testing.T) {
 					"path": "/spec/initContainers/0/volumeMounts/0/mountPath",
 					"value": "/etc/ssl/certs/my-ca.pem"
 				}
-			]`, string(response.Patch))
+			]`, string(response.Patch),
+		)
+		assert.Equal(t, "ca-secret", appliedSecret.Name)
+		assert.Equal(t, "default", appliedSecret.Namespace)
+		assert.Equal(t, map[string][]byte{
+			"ca.crt": webhook.caCert,
+		}, appliedSecret.Data)
 	})
 
 	t.Run("changed secret", func(t *testing.T) {
@@ -144,7 +177,13 @@ func TestMutatePods(t *testing.T) {
 					"path": "/spec/volumes/0/secret/secretName",
 					"value": "a-different-secret"
 				}
-			]`, string(response.Patch))
+			]`, string(response.Patch),
+		)
+		assert.Equal(t, "a-different-secret", appliedSecret.Name)
+		assert.Equal(t, "default", appliedSecret.Namespace)
+		assert.Equal(t, map[string][]byte{
+			"ca.crt": webhook.caCert,
+		}, appliedSecret.Data)
 	})
 }
 
@@ -154,7 +193,8 @@ var testPod = core.Pod{
 		Kind:       "Pod",
 	},
 	ObjectMeta: meta.ObjectMeta{
-		Name: "my-pod",
+		Name:      "my-pod",
+		Namespace: "default",
 	},
 	Spec: core.PodSpec{
 		Containers: []core.Container{{

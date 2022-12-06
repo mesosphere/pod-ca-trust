@@ -11,10 +11,15 @@ import (
 )
 
 func main() {
-	handler := webhook.CAInjectionWebhook{
-		CASecretName: getEnvRequired("CA_SECRET_NAME"),
-		CASecretKey:  getEnvWithDefault("CA_SECRET_KEY", "ca.crt"),
-		CABundlePath: getEnvWithDefault("CA_BUNDLE_PATH", "/etc/ssl/certs/injected-ca.pem"),
+	config := webhook.CAInjectionWebhookConfig{
+		CASecretName:      getEnvRequired("CA_SECRET_NAME"),
+		CASecretNamespace: getEnvRequired("CA_SECRET_NAMESPACE"),
+		CASecretKey:       getEnvWithDefault("CA_SECRET_KEY", "ca.crt"),
+		CABundlePath:      getEnvWithDefault("CA_BUNDLE_PATH", "/etc/ssl/certs/injected-ca.pem"),
+	}
+	handler, err := webhook.New(config)
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	s := &http.Server{
@@ -26,7 +31,7 @@ func main() {
 	}
 
 	log.Printf("Listening on %q", s.Addr)
-	err := s.ListenAndServeTLS(
+	err = s.ListenAndServeTLS(
 		getEnvRequired("SERVE_TLS_CERT"),
 		getEnvRequired("SERVE_TLS_KEY"),
 	)
