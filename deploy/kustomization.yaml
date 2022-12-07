@@ -37,3 +37,8 @@ vars:
       apiVersion: v1
       kind: Service
       name: webhook
+
+images:
+  - name: webhook-image
+    newName: floridoo/pod-ca-trust
+    newTag: v0.1.0
