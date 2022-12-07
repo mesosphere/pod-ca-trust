@@ -128,7 +128,6 @@ func (aw *CAInjectionWebhook) MutatePods(request *admission.AdmissionRequest) *a
 	}
 
 	if request.DryRun == nil || !*request.DryRun {
-		log.Println("applying secret in namespace", pod.Namespace)
 		err := aw.applyCACertSecret(pod.Namespace)
 		if err != nil {
 			return errorInternal(err)
