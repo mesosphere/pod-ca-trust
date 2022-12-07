@@ -180,8 +180,8 @@ func (aw *CAInjectionWebhook) applyVolume(pod *core.Pod) {
 		},
 	}
 
-	for i, volume := range pod.Spec.Volumes {
-		if volume.Name == volumeName {
+	for i := range pod.Spec.Volumes {
+		if pod.Spec.Volumes[i].Name == volumeName {
 			pod.Spec.Volumes[i] = caVolume
 			return
 		}

@@ -39,6 +39,7 @@ func TestMutatePods_NotAPod(t *testing.T) {
 	assert.Empty(t, response.Patch)
 }
 
+//nolint:funlen // want to test in sequence
 func TestMutatePods(t *testing.T) {
 	podJSON, err := json.Marshal(testPod)
 	require.NoError(t, err)
