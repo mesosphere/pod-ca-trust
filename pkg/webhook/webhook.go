@@ -26,16 +26,13 @@ const (
 )
 
 type CAInjectionWebhookConfig struct {
-	CASecretName      string
-	CASecretNamespace string
-	CASecretKey       string
-	CABundlePath      string
+	CACert      string
+	CAMountPath string
 }
 
 type CAInjectionWebhook struct {
 	CAInjectionWebhookConfig
 	clientset kubernetes.Interface
-	caCert    string
 }
 
 var _ http.Handler = &CAInjectionWebhook{}
@@ -50,18 +47,9 @@ func New(config CAInjectionWebhookConfig) (*CAInjectionWebhook, error) {
 		return nil, err
 	}
 
-	caSecret, err := clientset.CoreV1().Secrets(config.CASecretNamespace).
-		Get(context.Background(), config.CASecretName, meta.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-
-	klog.V(verbosityDebug).Infof("CA: %s", caSecret.Data[config.CASecretKey])
-
 	return &CAInjectionWebhook{
 		CAInjectionWebhookConfig: config,
 		clientset:                clientset,
-		caCert:                   string(caSecret.Data[config.CASecretKey]),
 	}, nil
 }
 
@@ -164,7 +152,7 @@ func (aw *CAInjectionWebhook) applyCACertConfigmap(namespace string) error {
 	_, err := aw.clientset.CoreV1().ConfigMaps(namespace).Apply(context.Background(),
 		v1.ConfigMap(configMapName, namespace).
 			WithData(map[string]string{
-				configMapKey: aw.caCert,
+				configMapKey: aw.CACert,
 			}),
 		meta.ApplyOptions{FieldManager: "pod-ca-trust-webhook"},
 	)
@@ -205,7 +193,7 @@ func (aw *CAInjectionWebhook) applyVolumeMount(container *core.Container) {
 	caVolumeMount := core.VolumeMount{
 		Name:      volumeMountName,
 		ReadOnly:  true,
-		MountPath: aw.CABundlePath,
+		MountPath: aw.CAMountPath,
 		SubPath:   configMapKey,
 	}
 

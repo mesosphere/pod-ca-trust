@@ -11,8 +11,8 @@ resources:
 
 configMapGenerator:
   - name: config
-    envs:
-      - config.env
+    literals:
+      - CA_CERT=unset
 
 configurations:
   - kustomization_config.yaml

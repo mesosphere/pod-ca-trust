@@ -18,10 +18,7 @@ import (
 func TestMutatePods_NotAPod(t *testing.T) {
 	webhook := CAInjectionWebhook{
 		CAInjectionWebhookConfig: CAInjectionWebhookConfig{
-			CASecretName:      "ca-secret",
-			CASecretNamespace: "test",
-			CASecretKey:       "ca.crt",
-			CABundlePath:      "/etc/ssl/certs/injected-ca.pem",
+			CAMountPath: "/etc/ssl/certs/injected-ca.pem",
 		},
 		clientset: fake.NewSimpleClientset(),
 	}
@@ -57,13 +54,10 @@ func TestMutatePods(t *testing.T) {
 
 	webhook := CAInjectionWebhook{
 		CAInjectionWebhookConfig: CAInjectionWebhookConfig{
-			CASecretName:      "ca-secret",
-			CASecretNamespace: "test",
-			CASecretKey:       "ca.crt",
-			CABundlePath:      "/etc/ssl/certs/injected-ca.pem",
+			CACert:      "test ca",
+			CAMountPath: "/etc/ssl/certs/injected-ca.pem",
 		},
 		clientset: fakeClient,
-		caCert:    "test ca",
 	}
 	request := &admission.AdmissionRequest{
 		Name:      testPod.Name,
@@ -122,7 +116,7 @@ func TestMutatePods(t *testing.T) {
 		assert.Equal(t, "pod-ca-trust.crt", appliedConfigMap.Name)
 		assert.Equal(t, "default", appliedConfigMap.Namespace)
 		assert.Equal(t, map[string]string{
-			"ca.crt": webhook.caCert,
+			"ca.crt": webhook.CACert,
 		}, appliedConfigMap.Data)
 	})
 
@@ -140,7 +134,7 @@ func TestMutatePods(t *testing.T) {
 
 	t.Run("changed path", func(t *testing.T) {
 		webhook := webhook
-		webhook.CABundlePath = "/etc/ssl/certs/my-ca.pem"
+		webhook.CAMountPath = "/etc/ssl/certs/my-ca.pem"
 		response = webhook.MutatePods(request)
 		assert.True(t, response.Allowed)
 		assert.JSONEq(t,
@@ -160,7 +154,7 @@ func TestMutatePods(t *testing.T) {
 		assert.Equal(t, "pod-ca-trust.crt", appliedConfigMap.Name)
 		assert.Equal(t, "default", appliedConfigMap.Namespace)
 		assert.Equal(t, map[string]string{
-			"ca.crt": webhook.caCert,
+			"ca.crt": webhook.CACert,
 		}, appliedConfigMap.Data)
 	})
 }

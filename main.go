@@ -15,10 +15,8 @@ func main() {
 	flag.Parse()
 
 	config := webhook.CAInjectionWebhookConfig{
-		CASecretName:      getEnvRequired("CA_SECRET_NAME"),
-		CASecretNamespace: getEnvRequired("CA_SECRET_NAMESPACE"),
-		CASecretKey:       getEnvWithDefault("CA_SECRET_KEY", "ca.crt"),
-		CABundlePath:      getEnvWithDefault("CA_BUNDLE_PATH", "/etc/ssl/certs/injected-ca.pem"),
+		CACert:      getEnvRequired("CA_CERT"),
+		CAMountPath: getEnvWithDefault("CA_MOUNT_PATH", "/etc/ssl/certs/injected-ca.pem"),
 	}
 	handler, err := webhook.New(config)
 	if err != nil {

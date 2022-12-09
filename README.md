@@ -20,8 +20,12 @@ configMapGenerator:
   - name: config
     behavior: merge
     literals:
-      - CA_SECRET_NAME=root-ca # <-- name of the secret containing the CA(s), in the installation namespace
-      - CA_SECRET_KEY=ca.crt # <-- key in the secret containing the CA(s)
+      - |
+        CA_CERT=-----BEGIN CERTIFICATE-----
+        [...]
+        -----END CERTIFICATE-----
+      # ^ one or multiple concatenated CA certificates in PEM format
+      - CA_MOUNT_PATH=/etc/ssl/certs/injected-ca.pem # <-- where to mount the CA, this is the default if not set
 ```
 2. Install
 ```sh

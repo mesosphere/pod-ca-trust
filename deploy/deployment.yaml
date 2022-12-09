@@ -42,8 +42,6 @@ spec:
               value: "/etc/webhook/tls/tls.crt"
             - name: SERVE_TLS_KEY
               value: "/etc/webhook/tls/tls.key"
-            - name: CA_SECRET_NAMESPACE
-              value: $(NAMESPACE)
           envFrom:
             - configMapRef:
                 name: config
