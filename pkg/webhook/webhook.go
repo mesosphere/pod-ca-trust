@@ -48,7 +48,8 @@ func New(config CAInjectionWebhookConfig) (*CAInjectionWebhook, error) {
 		return nil, err
 	}
 
-	caSecret, err := clientset.CoreV1().Secrets(config.CASecretNamespace).Get(context.Background(), config.CASecretName, meta.GetOptions{})
+	caSecret, err := clientset.CoreV1().Secrets(config.CASecretNamespace).
+		Get(context.Background(), config.CASecretName, meta.GetOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +126,8 @@ func (aw *CAInjectionWebhook) MutatePods(request *admission.AdmissionRequest) *a
 	}
 
 	if pod.Spec.ServiceAccountName != "" {
-		sa, err := aw.clientset.CoreV1().ServiceAccounts(pod.Namespace).Get(context.Background(), pod.Spec.ServiceAccountName, meta.GetOptions{})
+		sa, err := aw.clientset.CoreV1().ServiceAccounts(request.Namespace).
+			Get(context.Background(), pod.Spec.ServiceAccountName, meta.GetOptions{})
 		if err != nil {
 			return errorInternal(fmt.Errorf("reading ServiceAccount: %w", err))
 		}
@@ -140,8 +142,8 @@ func (aw *CAInjectionWebhook) MutatePods(request *admission.AdmissionRequest) *a
 	}
 
 	if request.DryRun == nil || !*request.DryRun {
-		klog.V(1).Infof("Applying CA cert secret in %q", pod.Namespace)
-		err := aw.applyCACertSecret(pod.Namespace)
+		klog.V(1).Infof("Applying CA cert secret in %q", request.Namespace)
+		err := aw.applyCACertSecret(request.Namespace)
 		if err != nil {
 			return errorInternal(fmt.Errorf("applying CA secret: %w", err))
 		}
@@ -156,7 +158,7 @@ func (aw *CAInjectionWebhook) MutatePods(request *admission.AdmissionRequest) *a
 		return errorInternal(fmt.Errorf("generating patch: %w", err))
 	}
 	if patch == nil {
-		klog.Infof(`Pod "%s/%s" unchanged.`, pod.Namespace, podNameForLogs)
+		klog.Infof(`Pod "%s/%s" unchanged.`, request.Namespace, podNameForLogs)
 		return &admission.AdmissionResponse{Allowed: true}
 	}
 	patchJSON, err := json.Marshal(patch)
@@ -164,7 +166,7 @@ func (aw *CAInjectionWebhook) MutatePods(request *admission.AdmissionRequest) *a
 		return errorInternal(fmt.Errorf("serializing patch: %w", err))
 	}
 	patchType := admission.PatchTypeJSONPatch
-	klog.Infof(`Pod "%s/%s" patched.`, pod.Namespace, podNameForLogs)
+	klog.Infof(`Pod "%s/%s" patched.`, request.Namespace, podNameForLogs)
 	return &admission.AdmissionResponse{
 		Allowed:   true,
 		PatchType: &patchType,
