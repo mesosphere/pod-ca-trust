@@ -20,6 +20,8 @@ import (
 const (
 	volumeName      = "injected-ca"
 	volumeMountName = volumeName
+	configMapName   = "pod-ca-trust.crt"
+	configMapKey    = "ca.crt"
 	verbosityDebug  = 2
 )
 
@@ -33,7 +35,7 @@ type CAInjectionWebhookConfig struct {
 type CAInjectionWebhook struct {
 	CAInjectionWebhookConfig
 	clientset kubernetes.Interface
-	caCert    []byte
+	caCert    string
 }
 
 var _ http.Handler = &CAInjectionWebhook{}
@@ -59,7 +61,7 @@ func New(config CAInjectionWebhookConfig) (*CAInjectionWebhook, error) {
 	return &CAInjectionWebhook{
 		CAInjectionWebhookConfig: config,
 		clientset:                clientset,
-		caCert:                   caSecret.Data[config.CASecretKey],
+		caCert:                   string(caSecret.Data[config.CASecretKey]),
 	}, nil
 }
 
@@ -125,27 +127,11 @@ func (aw *CAInjectionWebhook) MutatePods(request *admission.AdmissionRequest) *a
 		podNameForLogs = pod.GenerateName + "???"
 	}
 
-	if pod.Spec.ServiceAccountName != "" {
-		sa, err := aw.clientset.CoreV1().ServiceAccounts(request.Namespace).
-			Get(context.Background(), pod.Spec.ServiceAccountName, meta.GetOptions{})
-		if err != nil {
-			return errorInternal(fmt.Errorf("reading ServiceAccount: %w", err))
-		}
-		if len(sa.Secrets) > 0 {
-			warning := fmt.Sprintf("pod %q uses a service account with restricted secrets, skipping", podNameForLogs)
-			klog.Warning(warning)
-			return &admission.AdmissionResponse{
-				Allowed:  true,
-				Warnings: []string{warning},
-			}
-		}
-	}
-
 	if request.DryRun == nil || !*request.DryRun {
-		klog.V(1).Infof("Applying CA cert secret in %q", request.Namespace)
-		err := aw.applyCACertSecret(request.Namespace)
+		klog.V(1).Infof("Applying CA cert ConfigMap in %q", request.Namespace)
+		err := aw.applyCACertConfigmap(request.Namespace)
 		if err != nil {
-			return errorInternal(fmt.Errorf("applying CA secret: %w", err))
+			return errorInternal(fmt.Errorf("applying CA ConfigMap: %w", err))
 		}
 	}
 
@@ -174,11 +160,11 @@ func (aw *CAInjectionWebhook) MutatePods(request *admission.AdmissionRequest) *a
 	}
 }
 
-func (aw *CAInjectionWebhook) applyCACertSecret(namespace string) error {
-	_, err := aw.clientset.CoreV1().Secrets(namespace).Apply(context.Background(),
-		v1.Secret(aw.CASecretName, namespace).
-			WithData(map[string][]byte{
-				aw.CASecretKey: aw.caCert,
+func (aw *CAInjectionWebhook) applyCACertConfigmap(namespace string) error {
+	_, err := aw.clientset.CoreV1().ConfigMaps(namespace).Apply(context.Background(),
+		v1.ConfigMap(configMapName, namespace).
+			WithData(map[string]string{
+				configMapKey: aw.caCert,
 			}),
 		meta.ApplyOptions{FieldManager: "pod-ca-trust-webhook"},
 	)
@@ -189,8 +175,10 @@ func (aw *CAInjectionWebhook) applyVolume(pod *core.Pod) {
 	caVolume := core.Volume{
 		Name: volumeName,
 		VolumeSource: core.VolumeSource{
-			Secret: &core.SecretVolumeSource{
-				SecretName: aw.CASecretName,
+			ConfigMap: &core.ConfigMapVolumeSource{
+				LocalObjectReference: core.LocalObjectReference{
+					Name: configMapName,
+				},
 			},
 		},
 	}
@@ -218,7 +206,7 @@ func (aw *CAInjectionWebhook) applyVolumeMount(container *core.Container) {
 		Name:      volumeMountName,
 		ReadOnly:  true,
 		MountPath: aw.CABundlePath,
-		SubPath:   aw.CASecretKey,
+		SubPath:   configMapKey,
 	}
 
 	for i, mount := range container.VolumeMounts {

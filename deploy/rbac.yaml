@@ -34,11 +34,8 @@ metadata:
   name: create-certs
 rules:
   - apiGroups: [""]
-    resources: ["secrets"]
+    resources: ["configmaps"]
     verbs: ["create", "patch"]
-  - apiGroups: [""]
-    resources: ["serviceaccounts"]
-    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

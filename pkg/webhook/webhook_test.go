@@ -46,10 +46,10 @@ func TestMutatePods(t *testing.T) {
 
 	fakeClient := fake.NewSimpleClientset()
 	// fake client doesn't support "apply" patches, so adding separate logic
-	var appliedSecret core.Secret
-	fakeClient.PrependReactor("patch", "secrets",
+	var appliedConfigMap core.ConfigMap
+	fakeClient.PrependReactor("patch", "configmaps",
 		func(action clienttesting.Action) (handled bool, ret runtime.Object, err error) {
-			err = json.Unmarshal(action.(clienttesting.PatchAction).GetPatch(), &appliedSecret)
+			err = json.Unmarshal(action.(clienttesting.PatchAction).GetPatch(), &appliedConfigMap)
 			require.NoError(t, err)
 			return true, nil, nil
 		},
@@ -63,7 +63,7 @@ func TestMutatePods(t *testing.T) {
 			CABundlePath:      "/etc/ssl/certs/injected-ca.pem",
 		},
 		clientset: fakeClient,
-		caCert:    []byte("test ca"),
+		caCert:    "test ca",
 	}
 	request := &admission.AdmissionRequest{
 		Name:      testPod.Name,
@@ -110,8 +110,8 @@ func TestMutatePods(t *testing.T) {
 					"value": [
 						{
 							"name": "injected-ca",
-							"secret": {
-								"secretName": "ca-secret"
+							"configMap": {
+								"name": "pod-ca-trust.crt"
 							}
 						}
 					]
@@ -119,11 +119,11 @@ func TestMutatePods(t *testing.T) {
 			]`,
 			string(response.Patch),
 		)
-		assert.Equal(t, "ca-secret", appliedSecret.Name)
-		assert.Equal(t, "default", appliedSecret.Namespace)
-		assert.Equal(t, map[string][]byte{
+		assert.Equal(t, "pod-ca-trust.crt", appliedConfigMap.Name)
+		assert.Equal(t, "default", appliedConfigMap.Namespace)
+		assert.Equal(t, map[string]string{
 			"ca.crt": webhook.caCert,
-		}, appliedSecret.Data)
+		}, appliedConfigMap.Data)
 	})
 
 	patch, err := jsonpatch.DecodePatch(response.Patch)
@@ -157,80 +157,12 @@ func TestMutatePods(t *testing.T) {
 				}
 			]`, string(response.Patch),
 		)
-		assert.Equal(t, "ca-secret", appliedSecret.Name)
-		assert.Equal(t, "default", appliedSecret.Namespace)
-		assert.Equal(t, map[string][]byte{
+		assert.Equal(t, "pod-ca-trust.crt", appliedConfigMap.Name)
+		assert.Equal(t, "default", appliedConfigMap.Namespace)
+		assert.Equal(t, map[string]string{
 			"ca.crt": webhook.caCert,
-		}, appliedSecret.Data)
+		}, appliedConfigMap.Data)
 	})
-
-	t.Run("changed secret", func(t *testing.T) {
-		webhook := webhook
-		webhook.CASecretName = "a-different-secret"
-		response = webhook.MutatePods(request)
-		assert.True(t, response.Allowed)
-		assert.JSONEq(t,
-			`[
-				{
-					"op": "replace",
-					"path": "/spec/volumes/0/secret/secretName",
-					"value": "a-different-secret"
-				}
-			]`, string(response.Patch),
-		)
-		assert.Equal(t, "a-different-secret", appliedSecret.Name)
-		assert.Equal(t, "default", appliedSecret.Namespace)
-		assert.Equal(t, map[string][]byte{
-			"ca.crt": webhook.caCert,
-		}, appliedSecret.Data)
-	})
-}
-
-func TestMutatePods_RestrictiveServiceAccount(t *testing.T) {
-	testPod := testPod.DeepCopy()
-	testPod.Spec.ServiceAccountName = "test-sa"
-	podJSON, err := json.Marshal(testPod)
-	require.NoError(t, err)
-
-	serviceAccount := &core.ServiceAccount{
-		ObjectMeta: meta.ObjectMeta{
-			Name:      "test-sa",
-			Namespace: testPod.Namespace,
-		},
-		Secrets: []core.ObjectReference{{Name: "some-secret"}},
-	}
-	fakeClient := fake.NewSimpleClientset(serviceAccount)
-	// fake client doesn't support "apply" patches, so adding separate logic
-	var appliedSecret core.Secret
-	fakeClient.PrependReactor("patch", "secrets",
-		func(action clienttesting.Action) (handled bool, ret runtime.Object, err error) {
-			err = json.Unmarshal(action.(clienttesting.PatchAction).GetPatch(), &appliedSecret)
-			require.NoError(t, err)
-			return true, nil, nil
-		},
-	)
-
-	webhook := CAInjectionWebhook{
-		CAInjectionWebhookConfig: CAInjectionWebhookConfig{
-			CASecretName:      "ca-secret",
-			CASecretNamespace: "test",
-			CASecretKey:       "ca.crt",
-			CABundlePath:      "/etc/ssl/certs/injected-ca.pem",
-		},
-		clientset: fakeClient,
-		caCert:    []byte("test ca"),
-	}
-	request := &admission.AdmissionRequest{
-		Name:      testPod.Name,
-		Namespace: testPod.Namespace,
-		Kind:      meta.GroupVersionKind(testPod.GroupVersionKind()),
-		Object:    runtime.RawExtension{Raw: podJSON},
-	}
-	response := webhook.MutatePods(request)
-
-	assert.True(t, response.Allowed)
-	assert.Nil(t, response.Result)
-	assert.Empty(t, response.Patch)
 }
 
 var testPod = core.Pod{
