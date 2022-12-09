@@ -1,10 +1,10 @@
 package webhook
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 
 	"github.com/wI2L/jsondiff"
@@ -14,11 +14,13 @@ import (
 	v1 "k8s.io/client-go/applyconfigurations/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/klog/v2"
 )
 
 const (
 	volumeName      = "injected-ca"
 	volumeMountName = volumeName
+	verbosityDebug  = 2
 )
 
 type CAInjectionWebhookConfig struct {
@@ -51,7 +53,7 @@ func New(config CAInjectionWebhookConfig) (*CAInjectionWebhook, error) {
 		return nil, err
 	}
 
-	log.Printf("CA: %s", caSecret.Data[config.CASecretKey])
+	klog.V(verbosityDebug).Infof("CA: %s", caSecret.Data[config.CASecretKey])
 
 	return &CAInjectionWebhook{
 		CAInjectionWebhookConfig: config,
@@ -86,6 +88,14 @@ func (aw *CAInjectionWebhook) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 }
 
 func (aw *CAInjectionWebhook) MutatePods(request *admission.AdmissionRequest) *admission.AdmissionResponse {
+	if klog.V(verbosityDebug).Enabled() {
+		var buf bytes.Buffer
+		enc := json.NewEncoder(&buf)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(request)
+		klog.V(verbosityDebug).Infof("request: %s", buf.String())
+	}
+
 	// ignore requests with wrong type
 	if request.Kind != meta.GroupVersionKind(core.SchemeGroupVersion.WithKind("Pod")) {
 		return &admission.AdmissionResponse{
@@ -97,7 +107,7 @@ func (aw *CAInjectionWebhook) MutatePods(request *admission.AdmissionRequest) *a
 	var pod core.Pod
 	err := json.Unmarshal(request.Object.Raw, &pod)
 	if err != nil {
-		log.Printf("error: %v\n", err)
+		klog.Error(err)
 		return &admission.AdmissionResponse{
 			Allowed: false,
 			Result: &meta.Status{
@@ -117,20 +127,23 @@ func (aw *CAInjectionWebhook) MutatePods(request *admission.AdmissionRequest) *a
 	if pod.Spec.ServiceAccountName != "" {
 		sa, err := aw.clientset.CoreV1().ServiceAccounts(pod.Namespace).Get(context.Background(), pod.Spec.ServiceAccountName, meta.GetOptions{})
 		if err != nil {
-			return errorInternal(err)
+			return errorInternal(fmt.Errorf("reading ServiceAccount: %w", err))
 		}
 		if len(sa.Secrets) > 0 {
+			warning := fmt.Sprintf("pod %q uses a service account with restricted secrets, skipping", podNameForLogs)
+			klog.Warning(warning)
 			return &admission.AdmissionResponse{
 				Allowed:  true,
-				Warnings: []string{fmt.Sprintf("pod %q uses a service account with restricted secrets, skipping", podNameForLogs)},
+				Warnings: []string{warning},
 			}
 		}
 	}
 
 	if request.DryRun == nil || !*request.DryRun {
+		klog.V(1).Infof("Applying CA cert secret in %q", pod.Namespace)
 		err := aw.applyCACertSecret(pod.Namespace)
 		if err != nil {
-			return errorInternal(err)
+			return errorInternal(fmt.Errorf("applying CA secret: %w", err))
 		}
 	}
 
@@ -140,18 +153,18 @@ func (aw *CAInjectionWebhook) MutatePods(request *admission.AdmissionRequest) *a
 
 	patch, err := jsondiff.Compare(pod, mutatedPod)
 	if err != nil {
-		return errorInternal(err)
+		return errorInternal(fmt.Errorf("generating patch: %w", err))
 	}
 	if patch == nil {
-		log.Printf(`Pod "%s/%s" unchanged.`, pod.Namespace, podNameForLogs)
+		klog.Infof(`Pod "%s/%s" unchanged.`, pod.Namespace, podNameForLogs)
 		return &admission.AdmissionResponse{Allowed: true}
 	}
 	patchJSON, err := json.Marshal(patch)
 	if err != nil {
-		return errorInternal(err)
+		return errorInternal(fmt.Errorf("serializing patch: %w", err))
 	}
 	patchType := admission.PatchTypeJSONPatch
-	log.Printf(`Pod "%s/%s" patched.`, pod.Namespace, podNameForLogs)
+	klog.Infof(`Pod "%s/%s" patched.`, pod.Namespace, podNameForLogs)
 	return &admission.AdmissionResponse{
 		Allowed:   true,
 		PatchType: &patchType,
@@ -216,7 +229,7 @@ func (aw *CAInjectionWebhook) applyVolumeMount(container *core.Container) {
 }
 
 func errorInternal(err error) *admission.AdmissionResponse {
-	log.Printf("error: %v\n", err)
+	klog.Error(err)
 	return &admission.AdmissionResponse{
 		Allowed: false,
 		Result: &meta.Status{
