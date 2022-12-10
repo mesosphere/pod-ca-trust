@@ -43,4 +43,4 @@ vars:
 images:
   - name: webhook-image
     newName: mesosphere/pod-ca-trust
-    newTag: v0.1.0
+    newTag: v0.2.0
