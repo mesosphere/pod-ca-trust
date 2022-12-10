@@ -13,6 +13,17 @@ spec:
     app: pod-ca-trust
 ---
 
+apiVersion: v1
+kind: Secret
+metadata:
+  name: webhook-tls
+  namespace: default
+type: kubernetes.io/tls
+data:
+  tls.key: ""
+  tls.crt: ""
+---
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:

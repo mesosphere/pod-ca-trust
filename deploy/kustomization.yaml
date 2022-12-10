@@ -6,16 +6,13 @@ namePrefix: pod-ca-trust-
 resources:
   - rbac.yaml
   - deployment.yaml
-  - tls.yaml
   - webhook.yaml
+  - init.yaml
 
 configMapGenerator:
   - name: config
     literals:
       - CA_CERT=unset
-
-configurations:
-  - kustomization_config.yaml
 
 vars:
   - name: NAMESPACE
@@ -26,17 +23,22 @@ vars:
       name: webhook
     fieldref:
       fieldpath: metadata.namespace
-  - name: CERT_NAME
+  - name: SECRET_NAME
     objref:
-      group: cert-manager.io
       apiVersion: v1
-      kind: Certificate
-      name: webhook
-  - name: WEBHOOK_NAME
+      kind: Secret
+      name: webhook-tls
+  - name: SERVICE_NAME
     objref:
       apiVersion: v1
       kind: Service
       name: webhook
+  - name: WEBHOOK_NAME
+    objref:
+      group: admissionregistration.k8s.io
+      apiVersion: v1
+      kind: MutatingWebhookConfiguration
+      name: webhook.pod-ca-trust.dev
 
 images:
   - name: webhook-image

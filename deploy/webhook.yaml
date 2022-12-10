@@ -3,8 +3,6 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
   name: webhook.pod-ca-trust.dev
-  annotations:
-    cert-manager.io/inject-ca-from: $(NAMESPACE)/$(CERT_NAME)
 webhooks:
   - name: webhook.pod-ca-trust.dev
     sideEffects: NoneOnDryRun

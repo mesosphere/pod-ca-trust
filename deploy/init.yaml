@@ -1,0 +1,84 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: init
+  namespace: default
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: init
+rules:
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["mutatingwebhookconfigurations"]
+    verbs: ["patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: init
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: init
+subjects:
+  - kind: ServiceAccount
+    name: init
+    namespace: default
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: init
+  namespace: default
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: init
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: init
+subjects:
+  - kind: ServiceAccount
+    name: init
+    namespace: default
+---
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: init
+  namespace: default
+spec:
+  backoffLimit: 4
+  ttlSecondsAfterFinished: 100
+  template:
+    metadata:
+      labels:
+        app: pod-ca-trust
+    spec:
+      serviceAccountName: init
+      restartPolicy: Never
+      containers:
+        - image: webhook-image
+          imagePullPolicy: IfNotPresent
+          name: init-tls
+          args: [--init]
+          env:
+            - name: NAMESPACE
+              value: $(NAMESPACE)
+            - name: SECRET_NAME
+              value: $(SECRET_NAME)
+            - name: WEBHOOK_NAME
+              value: "$(WEBHOOK_NAME)"
+            - name: DNS_NAME
+              value: $(SERVICE_NAME).$(NAMESPACE).svc
