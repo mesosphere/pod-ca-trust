@@ -2,7 +2,9 @@
 
 This is a Mutating Admission Webhook to add trusted CAs to all Pods in a cluster.
 
-**Current use case:** Trust certificates issued by the Let's Encrypt Staging Environment in Kommander E2E
+**Limitation**: In the current version this will work for all Go based executables. Other binaries might not pick up the additional certificate(s), depending on the Linux distribution the container image is based on.
+
+**Current use case:** Trust certificates issued by the Let's Encrypt Staging Environment in Kommander E2E tests.
 
 ## Installation:
 1. Create a `kustomization.yaml`
