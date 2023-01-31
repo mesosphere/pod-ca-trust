@@ -13,7 +13,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  - git@github.com:mesosphere/pod-ca-trust.git//deploy?ref=v0.1.0 # <-- set the version here
+  - git@github.com:mesosphere/pod-ca-trust.git//deploy?ref=v0.2.0 # <-- set the version here
 
 # configure the installation namespace
 namespace: pod-ca-trust
